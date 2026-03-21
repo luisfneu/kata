@@ -1,0 +1,204 @@
+x-flink-env: &flink-env
+  RUSTFS_BUCKET: sales-csv
+  SOURCE_DB_URL: jdbc:postgresql://postgres-source:5432/salesdb
+  SOURCE_DB_USER: poc
+  SOURCE_DB_PASS: poc123
+  SINK_DB_URL: jdbc:postgresql://postgres-sink:5432/salesdb
+  SINK_DB_USER: poc
+  SINK_DB_PASS: poc123
+  SALES_API_URL: http://sales-api:8080
+  # Date range passed to the Flink job as --from / --to (yyyy-MM-dd).
+  # Override at runtime: JOB_FROM_DATE=2024-02-01 JOB_TO_DATE=2024-02-29 docker compose up
+  JOB_FROM_DATE: "2024-02-01"
+  JOB_TO_DATE: "2024-02-29"
+
+services:
+
+  # -- RustFS Object Storage (S3-compatible, simulates S3 drop zone) 
+  rustfs:
+    image: rustfs/rustfs:latest
+    hostname: rustfs
+    ports:
+      - "7480:9000"   # S3 API
+      - "7481:9001"   # RustFS console
+    environment:
+      RUSTFS_ACCESS_KEY: rustfsaccess
+      RUSTFS_SECRET_KEY: rustfssecret
+      RUSTFS_CONSOLE_ENABLE: "true"
+    command: ["/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s --max-time 5 http://localhost:9000/ -o /dev/null"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  # -- CSV Generator — uploads one sales_YYYYMMDD.csv per day to RustFS 
+  # Runs once on startup, exits cleanly when all files are uploaded.
+  sales-csv-generator:
+    build: ./sales-csv-generator
+    depends_on:
+      rustfs:
+        condition: service_healthy
+    environment:
+      RUSTFS_ENDPOINT: http://rustfs:9000
+      RUSTFS_ACCESS_KEY: rustfsaccess
+      RUSTFS_SECRET_KEY: rustfssecret
+      RUSTFS_BUCKET: sales-csv
+      GEN_FROM_DATE: "2024-02-01"
+      GEN_TO_DATE: "2024-02-29"
+      RECORDS_PER_FILE: "30"
+      SALESMEN_COUNT: "8"
+
+  # -- Sales API — Go REST service, third data source for the batch job 
+  # Generates random sales events in memory; the Flink job polls once at runtime.
+  # SEED_INTERVAL_MS=500 pre-fills the buffer quickly before the job starts.
+  sales-api:
+    build: ./sales-api
+    ports:
+      - "8085:8080"
+    environment:
+      PORT: "8080"
+      SEED_INTERVAL_MS: "500"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/health || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+
+  # -- Source Database (holds source_sales + seed data)
+  postgres-source:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: poc
+      POSTGRES_PASSWORD: poc123
+      POSTGRES_DB: salesdb
+    ports:
+      - "5434:5432"
+    volumes:
+      - ./db/source-init.sql:/docker-entrypoint-initdb.d/init.sql
+      - postgres-source-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U poc -d salesdb"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # -- Sink Database (holds sales_ranks + views)
+  postgres-sink:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: poc
+      POSTGRES_PASSWORD: poc123
+      POSTGRES_DB: salesdb
+    ports:
+      - "5435:5432"
+    volumes:
+      - ./db/sink-init.sql:/docker-entrypoint-initdb.d/init.sql
+      - postgres-sink-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U poc -d salesdb"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # -- Flink Cluster 
+  flink-jobmanager:
+    build: ./monitoring/flink-with-prometheus
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["mkdir -p /opt/flink/plugins/s3-fs-hadoop && cp /opt/flink/opt/flink-s3-fs-hadoop-*.jar /opt/flink/plugins/s3-fs-hadoop/ && /docker-entrypoint.sh jobmanager"]
+    ports:
+      - "8084:8081"
+      - "9249:9249"
+    environment:
+      <<: *flink-env
+      FLINK_PROPERTIES: |
+        jobmanager.rpc.address: flink-jobmanager
+        rest.bind-port: 8081
+        s3.access-key: rustfsaccess
+        s3.secret-key: rustfssecret
+        s3.endpoint: http://rustfs:9000
+        s3.path.style.access: true
+        metrics.reporter.prom.factory.class: org.apache.flink.metrics.prometheus.PrometheusReporterFactory
+        metrics.reporter.prom.port: 9249
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8081/overview"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+
+  flink-taskmanager:
+    build: ./monitoring/flink-with-prometheus
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["mkdir -p /opt/flink/plugins/s3-fs-hadoop && cp /opt/flink/opt/flink-s3-fs-hadoop-*.jar /opt/flink/plugins/s3-fs-hadoop/ && /docker-entrypoint.sh taskmanager"]
+    depends_on:
+      flink-jobmanager:
+        condition: service_healthy
+    environment:
+      <<: *flink-env
+      FLINK_PROPERTIES: |
+        jobmanager.rpc.address: flink-jobmanager
+        taskmanager.numberOfTaskSlots: 4
+        s3.access-key: rustfsaccess
+        s3.secret-key: rustfssecret
+        s3.endpoint: http://rustfs:9000
+        s3.path.style.access: true
+        metrics.reporter.prom.factory.class: org.apache.flink.metrics.prometheus.PrometheusReporterFactory
+        metrics.reporter.prom.port: 9249
+
+  # -- Monitoring
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.enable-lifecycle'
+
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      - prometheus
+
+  # -- Job Submitter
+  # Builds the fat JAR, submits to the cluster, and blocks until the job finishes.
+  # Waits for sales-csv-generator to finish so RustFS files are present before the job runs.
+  flink-job-submit:
+    build: ./flink-job
+    depends_on:
+      flink-jobmanager:
+        condition: service_healthy
+      flink-taskmanager:
+        condition: service_started
+      postgres-source:
+        condition: service_healthy
+      postgres-sink:
+        condition: service_healthy
+      sales-csv-generator:
+        condition: service_completed_successfully
+      sales-api:
+        condition: service_healthy
+    environment:
+      <<: *flink-env
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["echo 'Submitting batch job...' && flink run -m flink-jobmanager:8081 -c com.poc.BatchJob /opt/flink/usrlib/flink-job.jar --from $$JOB_FROM_DATE --to $$JOB_TO_DATE && echo 'Batch job completed successfully.'"]
+
+volumes:
+  postgres-source-data:
+  postgres-sink-data:
+  prometheus-data:
+  grafana-data:

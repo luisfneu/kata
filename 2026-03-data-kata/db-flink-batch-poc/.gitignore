@@ -1,0 +1,14 @@
+# Java
+flink-job/target/
+
+# Compiled binaries
+sales-csv-generator/sales-csv-generator
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# OS
+.DS_Store
+Thumbs.db
