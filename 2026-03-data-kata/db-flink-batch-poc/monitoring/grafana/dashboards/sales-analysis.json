@@ -1,0 +1,316 @@
+{
+  "title": "Sales Deep Analysis",
+  "uid": "sales-analysis",
+  "schemaVersion": 38,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-2y", "to": "now" },
+  "timepicker": {},
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Unique Cities",
+      "gridPos": { "x": 0, "y": 0, "w": 6, "h": 4 },
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "targets": [
+        {
+          "rawSql": "SELECT NOW() AS time, COUNT(DISTINCT group_key) AS value FROM sales_ranks WHERE rank_type = 'CITY'",
+          "rawQuery": true,
+          "format": "table",
+          "refId": "A"
+        }
+      ],
+      "options": { "colorMode": "background", "graphMode": "none", "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "fieldConfig": { "defaults": { "unit": "short", "color": { "mode": "fixed", "fixedColor": "orange" } } }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Unique Salesmen",
+      "gridPos": { "x": 6, "y": 0, "w": 6, "h": 4 },
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "targets": [
+        {
+          "rawSql": "SELECT NOW() AS time, COUNT(DISTINCT group_key) AS value FROM sales_ranks WHERE rank_type = 'COUNTRY'",
+          "rawQuery": true,
+          "format": "table",
+          "refId": "A"
+        }
+      ],
+      "options": { "colorMode": "background", "graphMode": "none", "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "fieldConfig": { "defaults": { "unit": "short", "color": { "mode": "fixed", "fixedColor": "blue" } } }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Avg Revenue per City",
+      "gridPos": { "x": 12, "y": 0, "w": 6, "h": 4 },
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "targets": [
+        {
+          "rawSql": "SELECT NOW() AS time, AVG(total_sales) AS value FROM sales_ranks WHERE rank_type = 'CITY'",
+          "rawQuery": true,
+          "format": "table",
+          "refId": "A"
+        }
+      ],
+      "options": { "colorMode": "value", "graphMode": "none", "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "fieldConfig": { "defaults": { "unit": "currencyUSD", "decimals": 2 } }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Avg Revenue per Salesman",
+      "gridPos": { "x": 18, "y": 0, "w": 6, "h": 4 },
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "targets": [
+        {
+          "rawSql": "SELECT NOW() AS time, AVG(total_sales) AS value FROM sales_ranks WHERE rank_type = 'COUNTRY'",
+          "rawQuery": true,
+          "format": "table",
+          "refId": "A"
+        }
+      ],
+      "options": { "colorMode": "value", "graphMode": "none", "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "fieldConfig": { "defaults": { "unit": "currencyUSD", "decimals": 2 } }
+    },
+    {
+      "id": 5,
+      "type": "piechart",
+      "title": "Revenue Share by City",
+      "gridPos": { "x": 0, "y": 4, "w": 12, "h": 10 },
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "targets": [
+        {
+          "rawSql": "SELECT group_key AS city, SUM(total_sales) AS total FROM sales_ranks WHERE rank_type = 'CITY' GROUP BY group_key ORDER BY total DESC",
+          "rawQuery": true,
+          "format": "table",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "pieType": "pie",
+        "displayLabels": ["percent"],
+        "legend": { "displayMode": "table", "placement": "right", "values": ["percent", "value"] },
+        "tooltip": { "mode": "single" }
+      },
+      "fieldConfig": {
+        "defaults": { "unit": "currencyUSD", "color": { "mode": "palette-classic" } }
+      }
+    },
+    {
+      "id": 6,
+      "type": "piechart",
+      "title": "Revenue Share by Salesman",
+      "gridPos": { "x": 12, "y": 4, "w": 12, "h": 10 },
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "targets": [
+        {
+          "rawSql": "SELECT group_key AS salesman, SUM(total_sales) AS total FROM sales_ranks WHERE rank_type = 'COUNTRY' GROUP BY group_key ORDER BY total DESC",
+          "rawQuery": true,
+          "format": "table",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "pieType": "donut",
+        "displayLabels": ["percent"],
+        "legend": { "displayMode": "table", "placement": "right", "values": ["percent", "value"] },
+        "tooltip": { "mode": "single" }
+      },
+      "fieldConfig": {
+        "defaults": { "unit": "currencyUSD", "color": { "mode": "palette-classic" } }
+      }
+    },
+    {
+      "id": 7,
+      "type": "bargauge",
+      "title": "City Revenue Contribution (%)",
+      "gridPos": { "x": 0, "y": 14, "w": 12, "h": 10 },
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "targets": [
+        {
+          "rawSql": "SELECT group_key AS city, ROUND(SUM(total_sales) * 100.0 / SUM(SUM(total_sales)) OVER (), 2) AS pct FROM sales_ranks WHERE rank_type = 'CITY' GROUP BY group_key ORDER BY pct DESC",
+          "rawQuery": true,
+          "format": "table",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "orientation": "horizontal",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "" },
+        "displayMode": "gradient",
+        "valueMode": "color",
+        "showUnfilled": true
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "blue", "value": null },
+              { "color": "green", "value": 10 },
+              { "color": "yellow", "value": 20 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 8,
+      "type": "bargauge",
+      "title": "Salesman Revenue Contribution (%)",
+      "gridPos": { "x": 12, "y": 14, "w": 12, "h": 10 },
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "targets": [
+        {
+          "rawSql": "SELECT group_key AS salesman, ROUND(SUM(total_sales) * 100.0 / SUM(SUM(total_sales)) OVER (), 2) AS pct FROM sales_ranks WHERE rank_type = 'COUNTRY' GROUP BY group_key ORDER BY pct DESC",
+          "rawQuery": true,
+          "format": "table",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "orientation": "horizontal",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "" },
+        "displayMode": "gradient",
+        "valueMode": "color",
+        "showUnfilled": true
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "blue", "value": null },
+              { "color": "green", "value": 10 },
+              { "color": "yellow", "value": 20 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 9,
+      "type": "table",
+      "title": "Bottom Performers — Salesmen",
+      "gridPos": { "x": 0, "y": 24, "w": 12, "h": 8 },
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "targets": [
+        {
+          "rawSql": "SELECT RANK() OVER (ORDER BY SUM(total_sales) ASC) AS rank, group_key AS salesman, entity_id AS salesman_id, SUM(total_sales) AS total_sales FROM sales_ranks WHERE rank_type = 'COUNTRY' GROUP BY group_key, entity_id ORDER BY total_sales ASC LIMIT 5",
+          "rawQuery": true,
+          "format": "table",
+          "refId": "A"
+        }
+      ],
+      "options": { "footer": { "show": false } },
+      "fieldConfig": {
+        "defaults": { "custom": { "displayMode": "auto" } },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "total_sales" },
+            "properties": [
+              { "id": "unit", "value": "currencyUSD" },
+              { "id": "decimals", "value": 2 },
+              { "id": "custom.displayMode", "value": "color-background" },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    { "color": "red", "value": null },
+                    { "color": "yellow", "value": 2000 },
+                    { "color": "green", "value": 5000 }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": 10,
+      "type": "table",
+      "title": "Bottom Performers — Cities",
+      "gridPos": { "x": 12, "y": 24, "w": 12, "h": 8 },
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "targets": [
+        {
+          "rawSql": "SELECT RANK() OVER (ORDER BY SUM(total_sales) ASC) AS rank, group_key AS city, SUM(total_sales) AS total_sales FROM sales_ranks WHERE rank_type = 'CITY' GROUP BY group_key ORDER BY total_sales ASC LIMIT 5",
+          "rawQuery": true,
+          "format": "table",
+          "refId": "A"
+        }
+      ],
+      "options": { "footer": { "show": false } },
+      "fieldConfig": {
+        "defaults": { "custom": { "displayMode": "auto" } },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "total_sales" },
+            "properties": [
+              { "id": "unit", "value": "currencyUSD" },
+              { "id": "decimals", "value": 2 },
+              { "id": "custom.displayMode", "value": "color-background" },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    { "color": "red", "value": null },
+                    { "color": "yellow", "value": 2000 },
+                    { "color": "green", "value": 5000 }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": 11,
+      "type": "table",
+      "title": "Processing Window Summary",
+      "gridPos": { "x": 0, "y": 32, "w": 24, "h": 7 },
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "targets": [
+        {
+          "rawSql": "SELECT rank_type AS type, MIN(window_start) AS earliest_event, MAX(window_end) AS latest_event, EXTRACT(EPOCH FROM (MAX(window_end) - MIN(window_start))) / 3600.0 AS window_hours, COUNT(DISTINCT group_key) AS entities, SUM(total_sales) AS total_revenue FROM sales_ranks GROUP BY rank_type ORDER BY rank_type",
+          "rawQuery": true,
+          "format": "table",
+          "refId": "A"
+        }
+      ],
+      "options": { "footer": { "show": false } },
+      "fieldConfig": {
+        "defaults": { "custom": { "displayMode": "auto" } },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "total_revenue" },
+            "properties": [
+              { "id": "unit", "value": "currencyUSD" },
+              { "id": "decimals", "value": 2 }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "window_hours" },
+            "properties": [
+              { "id": "unit", "value": "h" },
+              { "id": "decimals", "value": 1 }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}
