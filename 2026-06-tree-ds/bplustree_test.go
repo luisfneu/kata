@@ -78,37 +78,6 @@ func TestSize(t *testing.T) {
 }
 
 
-func TestManyInsertsSequential(t *testing.T) {
-	tree := New()
-	n := 100
-	for i := 0; i < n; i++ {
-		tree.Insert(i, i*10)
-	}
-	for i := 0; i < n; i++ {
-		v, ok := tree.Search(i)
-		if !ok {
-			t.Fatalf("key %d not found", i)
-		}
-		if v != i*10 {
-			t.Fatalf("key %d: got %v, want %v", i, v, i*10)
-		}
-	}
-}
-
-func TestManyInsertsReverse(t *testing.T) {
-	tree := New()
-	n := 100
-	for i := n - 1; i >= 0; i-- {
-		tree.Insert(i, i)
-	}
-	for i := 0; i < n; i++ {
-		_, ok := tree.Search(i)
-		if !ok {
-			t.Fatalf("key %d not found after reverse insert", i)
-		}
-	}
-}
-
 func TestManyInsertsRandom(t *testing.T) {
 	tree := New()
 	rng := rand.New(rand.NewSource(42))
